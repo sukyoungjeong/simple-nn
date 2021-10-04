@@ -1,14 +1,20 @@
 use ndarray::Array2;
 use rand::Rng;
 
+/// A simple neural network structure.
 pub struct Network {
+    /// Number of layers(depth) in this structure, including the input and output layer.
     num_layers: usize,
+    /// The layer sizes vector.
     layers: Vec<usize>,
+    /// Vector of biases, each is an Array2 of column size 1.
     biases: Vec<Array2<f64>>,
+    /// Vector of weights.
     weights: Vec<Array2<f64>>,
 }
 
 impl Network {
+    /// Train the network with stochastic gradient descent method.
     pub fn train(
         &mut self,
         trn_data: &[f64],
@@ -34,6 +40,7 @@ impl Network {
         }
     }
 
+    /// Train the network with given data in a batch.
     fn train_batch(&mut self, trn_data: &[f64], trn_lbl: &[u8], learning_rate: f64) {
         assert_eq!(trn_data.len(), trn_lbl.len() * self.layers[0]);
 
@@ -78,6 +85,8 @@ impl Network {
             .for_each(|(y, x)| *y -= &(x * learning_rate / trn_lbl.len() as f64));
     }
 
+    /// From single data, compute gradient of parameters.
+    /// Note that output is in reverse order of layer indexes.
     fn backward_propagate(
         &self,
         trn_data: &[f64],
@@ -117,6 +126,7 @@ impl Network {
         (b_ret, w_ret)
     }
 
+    /// Evaluate the network with a bunch of input data and labels
     pub fn evaluate(&self, tst_data: &[f64], tst_lbl: &[u8]) -> usize {
         assert_eq!(tst_data.len(), tst_lbl.len() * self.layers[0]);
 
@@ -131,6 +141,7 @@ impl Network {
         answer
     }
 
+    /// Infer the category of given data.
     fn feed(&self, tst_data: &[f64]) -> u8 {
         assert_eq!(tst_data.len(), self.layers[0]);
         let mut v: Array2<f64> =
@@ -151,18 +162,23 @@ impl Network {
     }
 }
 
+/// Struct used for configuring the Network.
 pub struct NetworkBuilder {
+    /// A vector representing size of each layer.
     layers: Vec<usize>,
 }
 
 impl NetworkBuilder {
+    /// Create a new NetworkBuilder with no arguments set.
     pub fn new() -> NetworkBuilder {
         NetworkBuilder { layers: vec![] }
     }
+    /// Set the size of layers.
     pub fn set_layers(&mut self, arg: Vec<usize>) -> &mut NetworkBuilder {
         self.layers = arg;
         self
     }
+    /// Get the Network instance with specified configuration.
     pub fn finalize(&mut self) -> Network {
         assert!(self.layers.len() > 1);
 
