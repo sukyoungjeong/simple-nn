@@ -3,6 +3,7 @@ use rand::Rng;
 
 /// A simple neural network structure.
 pub struct Network {
+    dimension: Option<(usize, usize)>,
     /// Number of layers(depth) in this structure, including the input and output layer.
     num_layers: usize,
     /// The layer sizes vector.
@@ -11,6 +12,11 @@ pub struct Network {
     biases: Vec<Array2<f64>>,
     /// Vector of weights.
     weights: Vec<Array2<f64>>,
+
+    /// Vector of vector of filters
+    kernel: Vec<Array2<f64>>,
+    /// maxpooling size and sampling stride
+    pooling: Option<(usize, usize)>,
 }
 
 impl Network {
@@ -143,9 +149,54 @@ impl Network {
 
     /// Infer the category of given data.
     fn feed(&self, tst_data: &[f64]) -> u8 {
-        assert_eq!(tst_data.len(), self.layers[0]);
-        let mut v: Array2<f64> =
-            Array2::from_shape_vec((self.layers[0], 1), tst_data.to_vec()).unwrap();
+        let mut v: Array2<f64> = if self.kernel.len() > 0 {
+            // execute convolution here
+            let dimension = self.dimension.unwrap();
+            let v0 = Array2::<f64>::from_shape_vec((dimension.0, dimension.1), tst_data.to_vec())
+                .unwrap();
+            assert!(v0.shape()[0] >= self.kernel[0].shape()[0]);
+
+            let mut features: Vec<Array2<f64>> = vec![];
+            for kernel in self.kernel.iter() {
+                let mut conv = Array2::<f64>::zeros((
+                    dimension.0 - kernel.shape()[0] + 1,
+                    dimension.1 - kernel.shape()[1] + 1,
+                ));
+                for i in 0..conv.shape()[0] {
+                    for j in 0..conv.shape()[1] {
+                        //TODO: do convolution here
+                        conv[[i, j]] += 1.0;
+                    }
+                }
+                features.push(conv);
+            }
+
+            let (pooling, stride) = self.pooling.unwrap();
+            for item in features.iter() {
+                let mut pooled = Array2::<f64>::from_elem((
+                    item.shape()[0] - pooling + 1,
+                    item.shape()[1] - pooling + 1,
+                ), <f64>::MIN);
+
+                for i in 0..pooled.shape()[0] {
+                    for j in 0..pooled.shape()[1] {
+                        for k in 0..pooling {
+                            for l in 0..pooling {
+                                if pooled[[i, j]] > item[[i + k, j + l]] {
+                                    pooled[[i, j]] = item[[i + k, j + l]];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            //TODO: remove below, put flattened feature maps
+            Array2::from_shape_vec((self.layers[0], 1), tst_data.to_vec()).unwrap()
+        } else {
+            assert_eq!(tst_data.len(), self.layers[0]);
+            Array2::from_shape_vec((self.layers[0], 1), tst_data.to_vec()).unwrap()
+        };
 
         for (b, w) in self.biases.iter().zip(self.weights.iter()) {
             v = (*b).clone() + (*w).dot(&v);
@@ -165,24 +216,61 @@ impl Network {
 /// Struct used for configuring the Network.
 pub struct NetworkBuilder {
     /// A vector representing size of each layer.
+    input_dim: Option<(usize, usize)>,
     layers: Vec<usize>,
+    kernel_size: Option<(usize, usize)>,
+    pooling_size: Option<(usize, usize)>,
 }
 
 impl NetworkBuilder {
     /// Create a new NetworkBuilder with no arguments set.
     pub fn new() -> NetworkBuilder {
-        NetworkBuilder { layers: vec![] }
+        NetworkBuilder {
+            input_dim: None,
+            layers: vec![],
+            kernel_size: None,
+            pooling_size: None,
+        }
     }
     /// Set the size of layers.
     pub fn set_layers(&mut self, arg: Vec<usize>) -> &mut NetworkBuilder {
         self.layers = arg;
         self
     }
+    pub fn set_convolution(
+        &mut self,
+        dimension: (usize, usize),
+        (kernel_size, num_of_filters, maxpool, subsample_stride): (usize, usize, usize, usize),
+    ) -> &mut NetworkBuilder {
+        assert!(maxpool > subsample_stride);
+        self.input_dim = Some(dimension);
+        self.kernel_size = Some((kernel_size, num_of_filters));
+        self.pooling_size = Some((maxpool, subsample_stride));
+        self
+    }
     /// Get the Network instance with specified configuration.
     pub fn finalize(&mut self) -> Network {
         assert!(self.layers.len() > 1);
-
         let mut rng = rand::thread_rng();
+
+        let mut kernel_vec: Vec<Array2<f64>> = vec![];
+
+        match self.kernel_size {
+            Some((kernel_size, num_of_filters)) => {
+                let (rows, cols) = self.input_dim.unwrap();
+                assert_eq!(self.layers[0], rows * cols);
+                for _ in 0..num_of_filters {
+                    kernel_vec.push(Array2::<f64>::ones((kernel_size, kernel_size)));
+                }
+
+                let (maxpool, stride) = self.pooling_size.unwrap();
+                self.layers[0] -= kernel_size - 1;
+                self.layers[0] -= maxpool - 1;
+                self.layers[0] = (self.layers[0] + stride - 1) / stride;
+                self.layers[0] *= num_of_filters
+            }
+            None => (),
+        }
 
         let biases: Vec<Array2<f64>> = self
             .layers
@@ -203,10 +291,13 @@ impl NetworkBuilder {
         assert_eq!(weights.len(), self.layers.len() - 1);
 
         Network {
+            dimension: self.input_dim,
             num_layers: self.layers.len(),
             layers: self.layers.clone(), // TODO
             biases: biases,
             weights: weights,
+            kernel: kernel_vec,
+            pooling: self.pooling_size,
         }
     }
 }

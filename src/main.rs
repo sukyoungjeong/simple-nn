@@ -30,6 +30,7 @@ fn main() {
 
     let mut net = NetworkBuilder::new()
         .set_layers(vec![input_size, 16, 16, output_size])
+        .set_convolution((28, 28), (1, 1, 1, 1))
         .finalize();
 
     net.train(
